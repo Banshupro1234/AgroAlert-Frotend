@@ -1,5 +1,10 @@
-// Remove or comment out this line - API key now in backend
-// const API_KEY = "eebc3d7adb97cc6343c734f635643a6e";
+// ================================
+// CONFIG
+// ================================
+const BACKEND_URL = "https://agroalert-backend.onrender.com";
+// NOTE: Forecast still uses OpenWeather directly.
+// Move forecast to backend later if you want to hide API key.
+
 let tempChart = null;
 
 /* -----------------------
@@ -22,7 +27,7 @@ const cropTips = {
     "Strong winds may damage stems—support if needed.",
   ],
   Sugarcane: [
-    "Irrigate every 10–12 days in summer for optimum growth.",
+    "Irrigate every 10–12 days in summer.",
     "Maintain soil moisture but prevent stagnation.",
     "Apply potassium-rich fertilizer for better yields.",
   ],
@@ -54,7 +59,7 @@ function injectCropSelector() {
 injectCropSelector();
 
 /* -----------------------
-   Form submit
+   Form Submit
    ----------------------- */
 document.getElementById("searchForm").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -63,7 +68,7 @@ document.getElementById("searchForm").addEventListener("submit", async (e) => {
 });
 
 /* -----------------------
-   Fetch Weather - NOW USING BACKEND!
+   Fetch Weather (Backend)
    ----------------------- */
 async function fetchWeather(cityOrPin) {
   const loadingSpinner = document.getElementById("loadingSpinner");
@@ -77,15 +82,14 @@ async function fetchWeather(cityOrPin) {
   errorMessage.classList.add("hidden");
 
   try {
-    // Call YOUR backend for current weather
+    // --- Current weather through your backend ---
     const currentRes = await fetch(
-      `http://localhost:5000/api/weather/${encodeURIComponent(cityOrPin)}`
+      `${BACKEND_URL}/api/weather/${encodeURIComponent(cityOrPin)}`
     );
     if (!currentRes.ok) throw new Error("Location not found");
     const currentData = await currentRes.json();
 
-    // For forecast, we need to call OpenWeather directly
-    // (You can move this to backend later by creating a new endpoint)
+    // --- Forecast (still OpenWeather direct call for now) ---
     let query;
     if (/^\d{6}$/.test(cityOrPin)) {
       query = `zip=${cityOrPin},in`;
@@ -93,16 +97,15 @@ async function fetchWeather(cityOrPin) {
       query = `q=${encodeURIComponent(cityOrPin)}`;
     }
 
-    // Temporary: Still using OpenWeather for forecast
-    // You'll need to keep the API_KEY for this part OR move forecast to backend too
-    const API_KEY = "eebc3d7adb97cc6343c734f635643a6e";
+    const API_KEY = "eebc3d7adb97cc6343c734f635643a6e"; // temporary
     const forecastRes = await fetch(
       `https://api.openweathermap.org/data/2.5/forecast?${query}&appid=${API_KEY}&units=metric`
     );
     if (!forecastRes.ok) throw new Error("Forecast not found");
+
     const forecastData = await forecastRes.json();
 
-    // compute rainChance for the next ~12 hours (first 4 entries)
+    // rain chance next 12h
     const rainChance = Math.round(
       (forecastData.list.slice(0, 4).filter((i) => i.rain && i.rain["3h"] > 0)
         .length /
@@ -135,8 +138,9 @@ function updateUI(current, forecast, rainChance) {
   document.getElementById(
     "cityName"
   ).textContent = `${current.name}, ${current.sys.country}`;
+
   document.getElementById("currentDate").textContent =
-    new Date().toLocaleDateString("en-US", {
+    new Date().toLocaleString("en-US", {
       weekday: "long",
       year: "numeric",
       month: "long",
@@ -167,20 +171,15 @@ function updateUI(current, forecast, rainChance) {
 }
 
 /* -----------------------
-   Generate Advice (uses crop selection)
+   Advice
    ----------------------- */
 function generateAdvice(current, forecast) {
   const advice = [];
-  const temp = current.main.temp;
-  const hum = current.main.humidity;
-  const wind = current.wind.speed;
 
-  // Weather-based
-
-  // Crop-specific
   const crop = document.getElementById("cropSelector")
     ? document.getElementById("cropSelector").value
     : "";
+
   if (crop && cropTips[crop]) {
     advice.push(crop);
     cropTips[crop].forEach((t) => advice.push("• " + t));
@@ -188,6 +187,7 @@ function generateAdvice(current, forecast) {
 
   const ul = document.getElementById("adviceList");
   ul.innerHTML = "";
+
   if (advice.length === 0) {
     ul.innerHTML =
       "<li class='flex gap-3 bg-green-50 p-4 rounded-lg border border-green-200'><span class='text-green-600 font-bold'>✓</span><span class='text-gray-700'>No specific advice right now.</span></li>";
@@ -204,7 +204,7 @@ function generateAdvice(current, forecast) {
 }
 
 /* -----------------------
-   Generate Cautions (alerts)
+   Cautions
    ----------------------- */
 function generateCautions(current, forecast, rainChance) {
   const cautions = [];
@@ -213,25 +213,12 @@ function generateCautions(current, forecast, rainChance) {
   const wind = current.wind.speed;
 
   if (temp > 37)
-    cautions.push(
-      "⚠️ Heatwave risk — Mulching and extra watering recommended."
-    );
-  if (temp < 5)
-    cautions.push(
-      "⚠️ Low temperature — Frost protection needed for seedlings."
-    );
-
-  if (hum > 85)
-    cautions.push("⚠️ Very high humidity — Higher chance of fungal diseases.");
+    cautions.push("⚠️ Heatwave risk — Extra watering recommended.");
+  if (temp < 5) cautions.push("⚠️ Frost conditions — Protect young plants.");
+  if (hum > 85) cautions.push("⚠️ Very high humidity — Fungal disease risk.");
   if (rainChance > 50)
-    cautions.push(
-      "⚠️ Heavy rainfall likely in next 12 hours — Secure harvested crops and delay field activities."
-    );
-
-  if (wind > 10)
-    cautions.push(
-      "⚠️ High winds — Avoid pesticide spraying and secure structures."
-    );
+    cautions.push("⚠️ Heavy rainfall expected — Secure stored crops.");
+  if (wind > 10) cautions.push("⚠️ High winds — Avoid spraying today.");
 
   const ul = document.getElementById("cautionList");
   ul.innerHTML = "";
@@ -251,7 +238,7 @@ function generateCautions(current, forecast, rainChance) {
 }
 
 /* -----------------------
-   Chart (temp + humidity)
+   Chart
    ----------------------- */
 function generateChart(forecast) {
   const next12h = forecast.slice(0, 4);
@@ -323,7 +310,7 @@ function generateChart(forecast) {
 }
 
 /* -----------------------
-   5-day forecast
+   5-Day Forecast
    ----------------------- */
 function generate5DayForecast(forecast) {
   const daily = [];
@@ -331,6 +318,7 @@ function generate5DayForecast(forecast) {
 
   const grid = document.getElementById("forecastGrid");
   grid.innerHTML = "";
+
   daily.slice(0, 5).forEach((day) => {
     const date = new Date(day.dt * 1000);
     const icons = {
